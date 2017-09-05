@@ -1,7 +1,15 @@
 import tensorflow as tf
 import matplotlib.pyplot as plt
+from cyclegan import *
 
-def train_reader(sess, input_a, input_b):
+img_height = 256
+img_width = 256
+img_layer = 3
+img_size = img_height * img_width
+max_images = 100
+global_step = tf.Variable(0, name="global_step", trainable=False)
+
+def train_reader(sess):
     train_a_files = tf.train.match_filenames_once("/Users/zjucx/Documents/Github/GAN/dataset/input/monet2photo/trainA/*.jpg")
     train_b_files = tf.train.match_filenames_once("/Users/zjucx/Documents/Github/GAN/dataset/input/monet2photo/trainB/*.jpg")
 
@@ -16,31 +24,42 @@ def train_reader(sess, input_a, input_b):
     image_B = tf.subtract(tf.div(tf.image.resize_images(tf.image.decode_jpeg(image_b),[256,256]),127.5),1)
 
     # Loading images into the tensors
-    input_a = np.zeros((max_images, batch_size, img_height, img_width, img_layer))
-    input_b = np.zeros((max_images, batch_size, img_height, img_width, img_layer))
+    input_A = np.zeros((max_images, batch_size, img_height, img_width, img_layer))
+    input_B = np.zeros((max_images, batch_size, img_height, img_width, img_layer))
 
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(coord=coord)
     for i in range(max_images):
         image_tensor = sess.run(image_A)
         if(image_tensor.size() == img_size*batch_size*img_layer):
-            input_a[i] = image_tensor.reshape((batch_size,img_height, img_width, img_layer))
+            input_A[i] = image_tensor.reshape((batch_size,img_height, img_width, img_layer))
 
     for i in range(max_images):
         image_tensor = sess.run(image_B)
         if(image_tensor.size() == img_size*batch_size*img_layer):
-            input_b[i] = image_tensor.reshape((batch_size,img_height, img_width, img_layer))
+            input_B[i] = image_tensor.reshape((batch_size,img_height, img_width, img_layer))
     coord.request_stop()
     coord.join(threads)
-    return input_a, input_b
+    return input_A, input_B
 
 
 def main():
     model = CycleGAN()
-    if to_train:
-        model.train()
-    elif to_test:
-        model.test()
+    model.init_model()
+    model.init_loss()
+
+    with tf.Session() as sess:
+        sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+        input_A, input_B = train_reader(sess)
+        for epoch in range(sess.run(global_step),100):
+            # Dealing with the learning rate as per the epoch number
+            if(epoch < 100) :
+                curr_lr = 0.0002
+            else:
+                curr_lr = 0.0002 - 0.0002*(epoch-100)/100
+
+            for ptr in range(0, max_images):
+        sess.run(tf.assign(global_step, epoch + 1))
 
 if __name__ == '__main__':
     main()
