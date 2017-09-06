@@ -42,6 +42,23 @@ def train_reader(sess):
     coord.join(threads)
     return input_A, input_B
 
+ def fake_image_pool(self, num_fakes, fake, fake_pool):
+    ''' This function saves the generated image to corresponding pool of images.
+    In starting. It keeps on feeling the pool till it is full and then randomly selects an
+    already stored image and replace it with new one.'''
+
+    if(num_fakes < pool_size):
+        fake_pool[num_fakes] = fake
+        return fake
+    else :
+        p = random.random()
+        if p > 0.5:
+            random_id = random.randint(0,pool_size-1)
+            temp = fake_pool[random_id]
+            fake_pool[random_id] = fake
+            return temp
+        else :
+            return fake
 
 def main():
     model = CycleGAN()
