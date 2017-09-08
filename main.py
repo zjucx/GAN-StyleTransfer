@@ -7,7 +7,9 @@ img_width = 256
 img_layer = 3
 img_size = img_height * img_width
 max_images = 100
+cp_dir = "./output/checkpoints/"
 global_step = tf.Variable(0, name="global_step", trainable=False)
+
 
 def train_reader(sess):
     train_a_files = tf.train.match_filenames_once("/Users/zjucx/Documents/Github/GAN/dataset/input/monet2photo/trainA/*.jpg")
@@ -42,23 +44,23 @@ def train_reader(sess):
     coord.join(threads)
     return input_A, input_B
 
- def fake_image_pool(self, num_fakes, fake, fake_pool):
+def gen_image_pool(num_gens, genimg, gen_pool):
     ''' This function saves the generated image to corresponding pool of images.
     In starting. It keeps on feeling the pool till it is full and then randomly selects an
     already stored image and replace it with new one.'''
-
-    if(num_fakes < pool_size):
-        fake_pool[num_fakes] = fake
-        return fake
+    pool_size = 50
+    if(num_gens < pool_size):
+        gen_pool[num_gens] = genimg
+        return genimg
     else :
         p = random.random()
         if p > 0.5:
             random_id = random.randint(0,pool_size-1)
-            temp = fake_pool[random_id]
-            fake_pool[random_id] = fake
+            temp = gen_pool[random_id]
+            gen_pool[random_id] = genimg
             return temp
         else :
-            return fake
+            return genimg
 
 def main():
     model = CycleGAN()
@@ -68,15 +70,27 @@ def main():
     with tf.Session() as sess:
         sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
         input_A, input_B = train_reader(sess)
-        for epoch in range(sess.run(global_step),100):
-            # Dealing with the learning rate as per the epoch number
-            if(epoch < 100) :
-                curr_lr = 0.0002
-            else:
-                curr_lr = 0.0002 - 0.0002*(epoch-100)/100
 
-            for ptr in range(0, max_images):
-        sess.run(tf.assign(global_step, epoch + 1))
+        #Restore the model to run the model from last checkpoint
+        if to_restore:
+            ch_fname = tf.train.latest_checkpoint(cp_dir)
+            saver.restore(sess, ch_fname)
+
+        for epoch in range(sess.run(global_step),100):
+            for idx in range(0, 100):
+                imggenb, imggena = sess.run([genb, gena],feed_dict={input_A:A_input[idx], input_B:B_input[idx]})
+
+                # train
+                _, a, b, c, d = (
+                      sess.run(
+                          [optimizers, g_loss_a, d_loss_b, g_loss_b, d_loss_a],
+                          feed_dict={input_A:A_input[idx], input_B:B_input[idx],
+                                     gen_A_pool: gen_image_pool(num_gen_inputs, imggena, gena_pool),
+                                     gen_B_pool: gen_image_pool(num_gen_inputs, imggenb, genb_pool)}
+                      )
+                )
+                num_gen_inputs += 1
+            saver.save(sess,os.path.join(cp_dir,"cyclegan"),global_step=epoch)
 
 if __name__ == '__main__':
     main()
