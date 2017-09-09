@@ -8,6 +8,7 @@ img_layer = 3
 img_size = img_height * img_width
 max_images = 100
 cp_dir = "./output/checkpoints/"
+to_restore = False
 global_step = tf.Variable(0, name="global_step", trainable=False)
 
 
@@ -22,8 +23,8 @@ def train_reader(sess):
     _, image_a = image_reader.read(train_a_queue)
     _, image_b = image_reader.read(train_b_queue)
 
-    image_A = tf.subtract(tf.div(tf.image.resize_images(tf.image.decode_jpeg(image_a),[256,256]),127.5),1)
-    image_B = tf.subtract(tf.div(tf.image.resize_images(tf.image.decode_jpeg(image_b),[256,256]),127.5),1)
+    image_a = tf.subtract(tf.div(tf.image.resize_images(tf.image.decode_jpeg(image_a),[256,256]),127.5),1)
+    image_b = tf.subtract(tf.div(tf.image.resize_images(tf.image.decode_jpeg(image_b),[256,256]),127.5),1)
 
     # Loading images into the tensors
     input_A = np.zeros((max_images, batch_size, img_height, img_width, img_layer))
@@ -31,15 +32,17 @@ def train_reader(sess):
 
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(coord=coord)
-    for i in range(max_images):
-        image_tensor = sess.run(image_A)
-        if(image_tensor.size() == img_size*batch_size*img_layer):
-            input_A[i] = image_tensor.reshape((batch_size,img_height, img_width, img_layer))
 
     for i in range(max_images):
-        image_tensor = sess.run(image_B)
+        image_tensor = sess.run(image_a)
+        if(image_tensor.size() == img_size*batch_size*img_layer):
+            input_A[i] = image_tensor.reshape((batch_size, img_height, img_width, img_layer))
+
+    for i in range(max_images):
+        image_tensor = sess.run(image_b)
         if(image_tensor.size() == img_size*batch_size*img_layer):
             input_B[i] = image_tensor.reshape((batch_size,img_height, img_width, img_layer))
+
     coord.request_stop()
     coord.join(threads)
     return input_A, input_B
@@ -63,9 +66,20 @@ def gen_image_pool(num_gens, genimg, gen_pool):
             return genimg
 
 def main():
+
+    # set up fake img pool
+    gen_A_pool = tf.placeholder(tf.float32, [None, img_height, img_width, img_layer], name="gen_A_pool")
+    gen_B_pool = tf.placeholder(tf.float32, [None, img_height, img_width, img_layer], name="gen_B_pool")
+
+    # init cycle model
     model = CycleGAN()
     model.init_model()
     model.init_loss()
+
+    # set up saver and summary for tf broad
+    summary_op = tf.summary.merge_all()
+    saver = tf.train.Saver()
+    train_writer = tf.summary.FileWriter(cp_dir)
 
     with tf.Session() as sess:
         sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
@@ -73,24 +87,31 @@ def main():
 
         #Restore the model to run the model from last checkpoint
         if to_restore:
-            ch_fname = tf.train.latest_checkpoint(cp_dir)
-            saver.restore(sess, ch_fname)
+            cp_file = tf.train.latest_checkpoint(cp_dir)
+            saver.restore(sess, cp_file)
 
-        for epoch in range(sess.run(global_step),100):
-            for idx in range(0, 100):
-                imggenb, imggena = sess.run([genb, gena],feed_dict={input_A:A_input[idx], input_B:B_input[idx]})
+        if not os.path.exists(cp_dir):
+                os.makedirs(cp_dir)
+
+        for epoch in range(sess.run(global_step), max_epoll):
+            for idx in range(0, max_images):
+                fake_a, fake_b = sess.run([fake_a, fake_b],feed_dict={input_A:input_A[idx], input_B:input_B[idx]})
 
                 # train
-                _, a, b, c, d = (
+                _, a, b, c, d , summary = (
                       sess.run(
-                          [optimizers, g_loss_a, d_loss_b, g_loss_b, d_loss_a],
+                          [optimizers, g_loss_a, d_loss_b, g_loss_b, d_loss_a, summary_op],
                           feed_dict={input_A:A_input[idx], input_B:B_input[idx],
-                                     gen_A_pool: gen_image_pool(num_gen_inputs, imggena, gena_pool),
-                                     gen_B_pool: gen_image_pool(num_gen_inputs, imggenb, genb_pool)}
+                                     pool_fake_b: gen_image_pool(epoch*max_epoll+idx, fake_b, fake_b_pool),
+                                     pool_fake_a: gen_image_pool(epoch*max_epoll+idx, fake_a, fake_a_pool)}
                       )
                 )
-                num_gen_inputs += 1
-            saver.save(sess,os.path.join(cp_dir,"cyclegan"),global_step=epoch)
+                print("epoch:%d idx:%d g_A_trainer:%f d_B_trainer:%f g_B_trainer:%f d_A_trainer%f"%(epoch, idx, a, b, c, d))
+
+                train_writer.add_summary(summary, epoch*max_epoll+idx)
+                train_writer.flush()
+
+            saver.save(sess,os.path.join(cp_dir,"cyclegan"), global_step=epoch)
 
 if __name__ == '__main__':
     main()
