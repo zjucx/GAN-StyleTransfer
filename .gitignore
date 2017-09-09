@@ -2,3 +2,6 @@
 .ipynb_checkpoints
 dataset/input
 bin/
+output/
+__pycache__
+CycleGAN.ipynb
